@@ -84,6 +84,11 @@ function send(channel: string, payload: unknown): void {
 let mlxPython: string | null = null
 
 async function ensureMLXRunning(model: string): Promise<string> {
+  if (process.platform === 'win32') {
+    mlxPython = 'ollama'
+    return 'ollama'
+  }
+
   let mlx = locateMLX()
   if (!mlx) {
     throw new Error(
@@ -129,7 +134,7 @@ async function handleSetup(model: string): Promise<void> {
   try {
     send('setup:status', { stage: 'checking', message: 'Checking system…' })
     await ensureMLXRunning(model)
-    send('setup:status', { stage: 'ready', message: 'Ready to chat.' })
+    send('setup:status', { stage: 'ready', message: 'Ready.' })
   } catch (e) {
     send('setup:status', {
       stage: 'error',

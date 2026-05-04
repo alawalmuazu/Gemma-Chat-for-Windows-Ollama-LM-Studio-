@@ -90,35 +90,35 @@ export interface ModelInfo {
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
   {
-    name: 'mlx-community/gemma-4-e2b-it-4bit',
-    label: 'Gemma 4 E2B',
-    size: '1.5 GB',
-    sizeBytes: 1_500_000_000,
-    description: 'Edge-sized. Fast & lightweight. Text + image + audio. Runs on 8GB+ Macs.'
-  },
-  {
-    name: 'mlx-community/gemma-4-e4b-it-4bit',
-    label: 'Gemma 4 E4B',
-    size: '3 GB',
-    sizeBytes: 3_000_000_000,
-    description: 'Best all-rounder. Text + image + audio. Runs on 8GB+ Macs.',
+    name: 'qwen-coder:latest',
+    label: 'Qwen Coder (Ollama)',
+    size: '8 GB',
+    sizeBytes: 8_000_000_000,
+    description: 'Specialized for coding. Excellent for Build Mode.',
     recommended: true
   },
   {
-    name: 'mlx-community/gemma-4-26b-a4b-it-4bit',
-    label: 'Gemma 4 27B MoE',
-    size: '16 GB',
-    sizeBytes: 16_000_000_000,
-    description: 'Mixture-of-Experts (26B, 4B active). 16GB+ RAM recommended.'
-  },
-  {
-    name: 'mlx-community/gemma-4-31b-it-4bit',
-    label: 'Gemma 4 31B',
+    name: 'qwq:latest',
+    label: 'QwQ (Ollama)',
     size: '18 GB',
     sizeBytes: 18_000_000_000,
-    description: 'Frontier dense model. Best quality. 32GB+ RAM recommended.'
+    description: 'Strong reasoning model.'
+  },
+  {
+    name: 'lm-studio',
+    label: 'LM Studio Model',
+    size: 'External',
+    sizeBytes: 0,
+    description: 'Connects to whichever model is currently loaded in LM Studio.'
+  },
+  {
+    name: 'mlx-community/gemma-4-e4b-it-4bit',
+    label: 'Gemma 4 E4B (MLX)',
+    size: '3 GB',
+    sizeBytes: 3_000_000_000,
+    description: 'Original MLX model (macOS only).',
   }
 ]
 
-export const DEFAULT_MODEL = 'mlx-community/gemma-4-e4b-it-4bit'
+export const DEFAULT_MODEL = 'qwen-coder:latest'
 

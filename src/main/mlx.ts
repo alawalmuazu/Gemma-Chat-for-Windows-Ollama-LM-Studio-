@@ -3,12 +3,16 @@ import { spawn, ChildProcess, spawnSync } from 'child_process'
 import { join } from 'path'
 import { existsSync, rmSync } from 'fs'
 
-const MLX_PORT = 11434
-const MLX_HOST = `127.0.0.1:${MLX_PORT}`
-const MLX_URL = `http://${MLX_HOST}`
+const OLLAMA_URL = 'http://localhost:11434'
+const LMSTUDIO_URL = 'http://localhost:1234'
 
 let serverProc: ChildProcess | null = null
 let currentModel: string | null = null
+
+function getBaseUrl(model: string): string {
+  if (model === 'lm-studio') return LMSTUDIO_URL
+  return OLLAMA_URL
+}
 
 // ---------------------------------------------------------------------------
 // Paths — everything lives under <appData>/mlx/
@@ -111,51 +115,13 @@ export interface MLXStatus {
  * Returns the python path to use and whether mlx_lm is installed.
  */
 export function locateMLX(): MLXStatus | null {
-  // 1. Check if we have a working venv with mlx_lm installed
-  const vPy = venvPython()
-  if (existsSync(vPy)) {
-    // Verify the venv Python is 3.10+ — older versions can't run modern mlx-lm
-    try {
-      const verCheck = spawnSync(vPy, ['--version'], {
-        timeout: 5000,
-        stdio: ['ignore', 'pipe', 'pipe']
-      })
-      const verStr = verCheck.stdout?.toString().trim() || ''
-      const verMatch = verStr.match(/Python 3\.(\d+)/)
-      const minor = verMatch ? parseInt(verMatch[1], 10) : 0
-      if (minor < 10) {
-        console.log(`[mlx] Existing venv uses ${verStr} (too old). Deleting and recreating…`)
-        try { rmSync(venvDir(), { recursive: true, force: true }) } catch { /* ok */ }
-        // Fall through to system python detection below
-      } else {
-        // Venv Python is compatible — check if mlx_lm is installed
-        try {
-          const check = spawnSync(vPy, ['-c', 'import mlx_lm; print("ok")'], {
-            timeout: 15000,
-            stdio: ['ignore', 'pipe', 'pipe']
-          })
-          const stdout = check.stdout?.toString().trim() || ''
-          if (check.status === 0 && stdout.includes('ok')) {
-            console.log('[mlx] Found mlx-lm in venv')
-            return { python: vPy, installed: true }
-          }
-        } catch {
-          // venv exists but mlx_lm not importable
-        }
-        // Venv exists but mlx_lm is missing — can still pip install into it
-        return { python: vPy, installed: false }
-      }
-    } catch {
-      // Can't check version — treat as needing recreation
-      console.log('[mlx] Cannot determine venv Python version. Recreating…')
-      try { rmSync(venvDir(), { recursive: true, force: true }) } catch { /* ok */ }
-    }
+  // On Windows, we bypass MLX and assume Ollama/LM Studio are used.
+  if (process.platform === 'win32') {
+    return { python: 'ollama', installed: true }
   }
-
-  // 2. No venv yet — find a compatible system python so we can create one
-  const sysPython = findSystemPython()
-  if (!sysPython) return null
-  return { python: sysPython, installed: false }
+  
+  // 1. Check if we have a working venv with mlx_lm installed
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -175,12 +141,9 @@ export type InstallProgress = {
 export async function installMLX(
   onProgress: (p: InstallProgress) => void
 ): Promise<string> {
+  if (process.platform === 'win32') return 'ollama'
+
   const sysPython = findSystemPython()
-  if (!sysPython) {
-    throw new Error(
-      'Python 3.10–3.13 not found. Please install Python via Homebrew: brew install python@3.13'
-    )
-  }
 
   const vDir = venvDir()
   const vPy = venvPython()
@@ -271,6 +234,7 @@ export async function startServer(
   model: string,
   onProgress?: (p: ServerProgress) => void
 ): Promise<void> {
+  if (process.platform === 'win32') return
   if (serverProc && !serverProc.killed && currentModel === model) return
 
   // Kill existing server if running with different model
@@ -393,7 +357,7 @@ async function waitForHealth(
 
 export async function listLocalModels(): Promise<string[]> {
   try {
-    const res = await fetch(`${MLX_URL}/v1/models`)
+    const res = await fetch(`${getBaseUrl('ollama')}/v1/models`)
     if (!res.ok) return []
     const data = (await res.json()) as { data?: Array<{ id: string }> }
     return (data.data ?? []).map((m) => m.id)
@@ -431,23 +395,33 @@ export interface MLXChatOptions {
 export async function* chatStream(
   opts: MLXChatOptions
 ): AsyncGenerator<{ content?: string; done?: boolean }> {
-  const res = await fetch(`${MLX_URL}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: opts.model,
-      messages: opts.messages.map((m) => ({
-        role: m.role,
-        content: m.content
-      })),
-      stream: true,
-      temperature: opts.temperature ?? 0.7,
-      max_tokens: 8192
-    }),
-    signal: opts.signal
-  })
+  const baseUrl = getBaseUrl(opts.model)
+  const url = `${baseUrl}/v1/chat/completions`
+  console.log(`[mlx] Chat request to ${url} for model ${opts.model}`)
+  
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: opts.model,
+        messages: opts.messages.map((m) => ({
+          role: m.role,
+          content: m.content
+        })),
+        stream: true,
+        temperature: opts.temperature ?? 0.7,
+        max_tokens: 8192
+      }),
+      signal: opts.signal || AbortSignal.timeout(30_000)
+    })
+  } catch (e) {
+    console.error(`[mlx] Fetch error for ${url}:`, e)
+    throw new Error(`Failed to connect to AI server at ${url}. Ensure Ollama/LM Studio is running.`)
+  }
 
-  if (!res.ok || !res.body) {
+  if (!res.ok) {
     const text = await res.text().catch(() => '')
     throw new Error(`Chat request failed: ${res.status} ${res.statusText} — ${text}`)
   }
@@ -517,4 +491,4 @@ async function* readSSE(stream: ReadableStream<Uint8Array>): AsyncGenerator<stri
   }
 }
 
-export { MLX_URL }
+export { OLLAMA_URL as MLX_URL }
